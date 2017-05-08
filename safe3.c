@@ -47,29 +47,41 @@ static void *memmem ( const void *haystack, size_t haystack_size, const void *ne
 	return NULL;
 }
 
+
+struct {
+    unsigned short limit;
+    unsigned long base;
+} __attribute__ ((packed))idtr;
+
+
+struct {
+    unsigned short off1;
+    unsigned short sel;
+    unsigned char none, flags;
+    unsigned short off2;
+} __attribute__ ((packed))idt;
+
+
 unsigned long *find_sys_call_table ( void )
 {
-	char **p;
-	unsigned long sct_off = 0;
-	unsigned char code[512];
-
-	rdmsrl(MSR_LSTAR, sct_off);
-	memcpy(code, (void *)sct_off, sizeof(code));
-
-	p = (char **)memmem(code, sizeof(code), "\xff\x14\xc5", 3);
-
-	if ( p )
-	{
-		unsigned long *sct = *(unsigned long **)((char *)p + 3);
-
-		// Stupid compiler doesn't want to do bitwise math on pointers
-		sct = (unsigned long *)(((unsigned long)sct & 0xffffffff) | 0xffffffff00000000);
-
-		return sct;
-	}
-	else
-		return NULL;
+    char **p;
+    unsigned long sct_off = 0;
+    unsigned char code[255];
+ 
+    asm("sidt %0":"=m" (idtr));//内存中断指令，得到中断描述符表起始地址
+    memcpy(&idt, (void *)(idtr.base + 8 * 0x80), sizeof(idt));
+    sct_off = (idt.off2 << 16) | idt.off1;
+    memcpy(code, (void *)sct_off, sizeof(code));
+ 
+    p = (char **)memmem(code, sizeof(code), "\xff\x14\x85", 3);
+ 
+    if ( p )
+        return *(unsigned long **)((char *)p + 3);
+    else
+        return NULL;
 }
+
+
 
 inline unsigned long disable_wp ( void )
 {
